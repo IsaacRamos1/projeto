@@ -44,13 +44,14 @@ class LightSelfAttention(nn.Module):
         self.key = nn.Linear(feature_dim, feature_dim)
         self.value = nn.Linear(feature_dim, feature_dim)
         self.softmax = nn.Softmax(dim=-1)
+        self.feature_dim = feature_dim
 
     def forward(self, x):
         Q = self.query(x)
         K = self.key(x)
         V = self.value(x)
 
-        attention_scores = torch.matmul(Q, K.transpose(-2, -1)) / (feature_dim ** 0.5)
+        attention_scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.feature_dim ** 0.5)
         attention_probs = self.softmax(attention_scores)
         attended = torch.matmul(attention_probs, V)
         return attended
@@ -92,3 +93,6 @@ if __name__ == "__main__":
     print("Self-Attention Output Shape:", out_self_att.shape)
     print("Self-Attention Top 258 Features Shape:", top_self_att.shape)
     print("Self-Attention Top 258 Features:\n", top_self_att)
+
+
+    

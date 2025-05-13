@@ -3,8 +3,8 @@ import shutil
 import random
 
 # Defina seu diretório base
-base_dir = '../data_original'
-classes = ['BASH', 'BBH', 'GMA', 'SHC', 'TSH']
+base_dir = '../data_ceratite_original'
+classes = ['AK', 'FK pic', 'normal', 'NSK pic']
 
 # Define a porcentagem para split
 train_split = 0.8

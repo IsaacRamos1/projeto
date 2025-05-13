@@ -1,0 +1,42 @@
+
+import os
+import numpy as np
+from PIL import Image
+from glob import glob
+from tqdm import tqdm
+from itertools import combinations
+
+def find_duplicate_images(root_dir):
+    """
+    Encontra imagens idênticas (bit a bit) dentro dos subdiretórios de root_dir.
+    Retorna uma lista de tuplas com os caminhos das imagens duplicadas.
+    """
+    image_paths = glob(os.path.join(root_dir, '**', '*.png'), recursive=True)
+    image_paths += glob(os.path.join(root_dir, '**', '*.jpg'), recursive=True)
+
+    image_arrays = {}
+    duplicates = []
+
+    print(f"Analisando {len(image_paths)} imagens...")
+
+    for img_path in tqdm(image_paths):
+        try:
+            img = Image.open(img_path).convert('RGB')
+            arr = np.array(img)
+            key = arr.tobytes()  # cria uma chave única para o conteúdo da imagem
+            if key in image_arrays:
+                duplicates.append((image_arrays[key], img_path))
+                os.remove(img_path)
+            else:
+                image_arrays[key] = img_path
+        except Exception as e:
+            print(f"Erro ao processar {img_path}: {e}")
+            continue
+
+    print(f"{len(duplicates)} pares de imagens duplicadas encontradas.")
+    return duplicates
+
+
+dups = find_duplicate_images('../data_ceratite/train/AK')
+for d1, d2 in dups:
+    print(f"Duplicata: {d1} == {d2}")
