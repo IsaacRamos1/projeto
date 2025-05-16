@@ -195,13 +195,12 @@ def load_checkpoint_and_evaluate(checkpoint_path, model_name, num_classes, testl
 # models = resnet18, mobilenetv3, resnet18_mobilenetv3, vgg16_mobilenetv3, vgg16, densenet161,
 #          densenet161_mobilenetv3, inceptionv3
 
-model_name = 'vgg16_mobilenetv3'
+model_name = 'densenet161_mobilenetv3'
 
 #print('testando_checkpoit.pt...')
 #_, testloader, classes = load_test_val_from_folder(batch_size=8)
 #checkpoint_path = 'checkpoint.pt'
 #num_classes = len(classes)
-#load_checkpoint_and_evaluate(checkpoint_path, model_name, num_classes, testloader)
 #exit()
 
 if __name__ == '__main__':

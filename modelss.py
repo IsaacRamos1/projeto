@@ -19,78 +19,17 @@ class CombinedDenseNet161MobileNetV3(nn.Module):
         densenet = models.densenet161(weights=models.DenseNet161_Weights.DEFAULT)
         self.densenet_features = densenet.features
         self.densenet_avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.densenet_fc = nn.Linear(2208, 960)  # DenseNet161 termina com 2208 canais
+        self.densenet_maxpool = nn.AdaptiveMaxPool2d((1, 1))
+        self.densenet_fc = nn.Linear(2208 * 2, 512)  # DenseNet161 termina com 2208 canais
 
         # MobileNetv3_Large
         mobilenet_v3_large = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT)
         self.mobilenet_features = mobilenet_v3_large.features
-        self.mobilenet_avgpool = nn.AdaptiveAvgPool2d((1,1))
-        self.mobilenet_fc = nn.Linear(960, 960)  # MobileNetV3-Large tem 960 canais finais
+        self.mobilenet_avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.mobilenet_maxpool = nn.AdaptiveMaxPool2d((1, 1))
+        self.mobilenet_fc = nn.Linear(960 * 2, 512)  # MobileNetV3-Large tem 960 canais finais
 
         # Mecanismo de atenção
-        self.attn = nn.Sequential(
-            nn.Linear(960, 256),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, 960),
-            nn.Sigmoid()
-        )
-
-        self.mlp = nn.Sequential(
-            nn.Linear(960, 1024),
-            nn.Hardswish(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(1024, 512),
-            nn.Hardswish(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(512, 256),
-            nn.Hardswish(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(256, 128),
-            nn.Hardswish(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(128, num_classes)
-        )
-
-    def forward(self, x):
-        # DenseNet
-        x1 = self.densenet_features(x)
-        x1 = self.densenet_avgpool(x1)
-        x1 = torch.flatten(x1, 1)
-        x1 = self.densenet_fc(x1)
-
-        # MobileNet
-        x2 = self.mobilenet_features(x)
-        x2 = self.mobilenet_avgpool(x2)
-        x2 = torch.flatten(x2, 1)
-        x2 = self.mobilenet_fc(x2)
-
-        # Fusão com atenção
-        alpha = self.attn(x1)
-        x_combined = alpha * x1 + (1 - alpha) * x2
-
-        return self.mlp(x_combined)
-
-
-class CombinedVGG16MobileNetV3(nn.Module):
-    def __init__(self, num_classes=4):
-        super(CombinedVGG16MobileNetV3, self).__init__()
-
-        # Backbone convolucional VGG16
-        vgg16 = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
-        self.vgg_features = vgg16.features
-        self.vgg_avgpool = nn.AdaptiveAvgPool2d((1,1))
-        self.vgg_maxpool = nn.AdaptiveMaxPool2d((1, 1))
-        self.vgg_fc = nn.Linear(512, 512)  # VGG16 tem 512 canais finais
-
-        # Backbone convolucional MobileNetV3-Large
-        mobilenet_v3_large = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT)
-        self.mobilenet_features = mobilenet_v3_large.features
-        self.mobilenet_avgpool = nn.AdaptiveAvgPool2d((1,1))
-        self.mobilenet_maxpool = nn.AdaptiveMaxPool2d((1, 1))
-        self.mobilenet_fc = nn.Linear(960, 512)  # MobileNetV3-Large tem 960 canais finais
-
-        self.attn_block = LightSelfAttention(512)
-
         self.attn = nn.Sequential(
             nn.Linear(1024, 256),
             nn.ReLU(inplace=True),
@@ -98,7 +37,6 @@ class CombinedVGG16MobileNetV3(nn.Module):
             nn.Sigmoid()
         )
 
-    
         self.mlp = nn.Sequential(
             nn.Linear(512, 1024),
             nn.Hardswish(inplace=True),
@@ -116,21 +54,94 @@ class CombinedVGG16MobileNetV3(nn.Module):
         )
 
     def forward(self, x):
-        # Passa pela VGG16
-        x1 = self.vgg_features(x)
-        #x1_avg = self.vgg_avgpool(x1)
-        x1 = self.vgg_maxpool(x1)
-        #x1 = torch.cat([x1_avg, x1_max], dim=1)
+        # DenseNet
+        x1 = self.densenet_features(x)
+        x1_avg = self.densenet_avgpool(x1) 
+        x1_max = self.densenet_maxpool(x1) 
+        x1 = torch.cat([x1_avg, x1_max], dim=1) 
         x1 = torch.flatten(x1, 1)
-        #x1 = self.vgg_fc(x1)   # vetor jah eh (B, 512)
+        x1 = self.densenet_fc(x1)
+
+        # MobileNet
+        x2 = self.mobilenet_features(x) 
+        x2_avg = self.mobilenet_avgpool(x2) 
+        x2_max = self.mobilenet_maxpool(x2) 
+        x2 = torch.cat([x2_avg, x2_max], dim=1) 
+        x2 = torch.flatten(x2, 1)
+        x2 = self.mobilenet_fc(x2)
+
+        x1 = nn.functional.normalize(x1, dim=1)
+        x2 = nn.functional.normalize(x2, dim=1)
+
+        fused = torch.concat([x1, x2], dim=1)
+        weights = self.attn(fused)        
+        alpha, beta = torch.split(weights, 512, dim=1)
+        x_combined = alpha * x1 + beta * x2
+
+        output = self.mlp(x_combined)
+        return output
+
+
+class CombinedVGG16MobileNetV3(nn.Module):
+    def __init__(self, num_classes=4):
+        super(CombinedVGG16MobileNetV3, self).__init__()
+
+        # Backbone convolucional VGG16
+        vgg16 = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
+        self.vgg_features = vgg16.features
+        self.vgg_avgpool = nn.AdaptiveAvgPool2d((1,1))
+        self.vgg_maxpool = nn.AdaptiveMaxPool2d((1, 1))
+        self.vgg_fc = nn.Linear(512 * 2, 512)  # VGG16 tem 512 canais finais
+
+        # Backbone convolucional MobileNetV3-Large
+        mobilenet_v3_large = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT)
+        self.mobilenet_features = mobilenet_v3_large.features
+        self.mobilenet_avgpool = nn.AdaptiveAvgPool2d((1,1))
+        self.mobilenet_maxpool = nn.AdaptiveMaxPool2d((1, 1))
+        self.mobilenet_fc = nn.Linear(960 * 2, 512)  # MobileNetV3-Large tem 960 canais finais
+
+        self.attn_block = LightSelfAttention(512)
+
+        self.attn = nn.Sequential(
+            nn.Linear(1024, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 1024),
+            nn.Sigmoid()
+        )
+
+    
+        self.mlp = nn.Sequential(
+            nn.Linear(512, 512),
+            nn.Hardswish(inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(1024, 512),
+            nn.Hardswish(inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(512, 256),
+            nn.Hardswish(inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(512, 256),
+            nn.Hardswish(inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(512, num_classes)
+        )
+
+    def forward(self, x):
+        # Passa pela VGG16
+        x1 = self.vgg_features(x) 
+        x1_avg = self.vgg_avgpool(x1) 
+        x1_max = self.vgg_maxpool(x1) 
+        x1 = torch.cat([x1_avg, x1_max], dim=1) 
+        x1 = torch.flatten(x1, 1)
+        x1 = self.vgg_fc(x1)        
 
         # Passa pela MobileNetV3-Large
-        x2 = self.mobilenet_features(x)
-        #x2_avg = self.mobilenet_avgpool(x2)
-        x2 = self.mobilenet_maxpool(x2)
-        #x2 = torch.cat([x2_avg, x2_max], dim=1)
+        x2 = self.mobilenet_features(x) 
+        x2_avg = self.mobilenet_avgpool(x2) 
+        x2_max = self.mobilenet_maxpool(x2) 
+        x2 = torch.cat([x2_avg, x2_max], dim=1) 
         x2 = torch.flatten(x2, 1)
-        x2 = self.mobilenet_fc(x2)  # transofrmar para vetor (B, 512)
+        x2 = self.mobilenet_fc(x2)   
 
 
 
@@ -148,9 +159,9 @@ class CombinedVGG16MobileNetV3(nn.Module):
         # Concat x1 e x2, e gerar pesos juntos
 
         fused = torch.concat([x1, x2], dim=1)
-        weights = self.attn(fused)
+        weights = self.attn(fused)        
         alpha, beta = torch.split(weights, 512, dim=1)
-        x_combined = alpha * x1 + beta * x2
+        x_combined = alpha * x1 + beta * x2  
 
         # Self Attention em X1 e X2 -------------
         # alpha = self.attn(x1)
