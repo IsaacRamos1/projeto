@@ -37,6 +37,6 @@ def find_duplicate_images(root_dir):
     return duplicates
 
 
-dups = find_duplicate_images('../data_ceratite/train/AK')
+dups = find_duplicate_images('../data_ceratite')
 for d1, d2 in dups:
     print(f"Duplicata: {d1} == {d2}")

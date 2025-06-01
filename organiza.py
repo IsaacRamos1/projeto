@@ -4,7 +4,7 @@ import random
 
 # Defina seu diretório base
 base_dir = '../data_ceratite_original'
-classes = ['AK', 'FK pic', 'normal', 'NSK pic']
+classes = ['AK', 'FK', 'Normal', 'NSK']
 
 # Define a porcentagem para split
 train_split = 0.8

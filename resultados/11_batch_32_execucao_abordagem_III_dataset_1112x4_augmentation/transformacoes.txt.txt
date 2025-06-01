@@ -1,0 +1,10 @@
+hflip
+vflip
+clahe
+
+
+MLP menor:
+nn.Linear(512, 2048),  
+            nn.Hardswish(inplace=True),
+            nn.Dropout(0.1),
+            nn.Linear(2048, num_classes)

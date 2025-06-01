@@ -32,4 +32,4 @@ def apply_clahe_and_laplacian_overlay(class0_dir, prob_clahe=0.3):
     print("Processo finalizado.")
 
 # Exemplo de uso
-apply_clahe_and_laplacian_overlay(class0_dir='../data_ceratite/train/AK', prob_clahe=0.5)
+apply_clahe_and_laplacian_overlay(class0_dir='../data_ceratite/train/AK', prob_clahe=0.3)

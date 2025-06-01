@@ -2,7 +2,7 @@ import os
 from collections import Counter
 
 base_dir = '../data_ceratite_original'
-splits = ['train', 'test', 'val']
+splits = ['train', 'test']
 total_geral = 0
 total_por_classe = Counter()
 

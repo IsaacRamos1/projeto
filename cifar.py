@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import random
 from modelss import CNNTrainer
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import ImageFolder
@@ -36,24 +36,6 @@ class EdgeEnhancement(A.ImageOnlyTransform):
         # Combina a imagem original com o realce de bordas
         enhanced = cv2.addWeighted(img, 0.8, laplacian, 0.2, 0)
         return enhanced
-
-
-class AlbumentationsTransform:
-    def __init__(self):
-        self.transform = Compose([
-            Resize(224, 224),
-            HorizontalFlip(p=0.5),
-            VerticalFlip(p=0.5),
-            CLAHE(p=0.5),
-            Rotate(limit=45, p=0.5),
-            EdgeEnhancement(p=0.5),
-            ToTensorV2()
-        ])
-
-    def __call__(self, img):
-        img = np.array(img)  # PIL Image -> numpy array
-        augmented = self.transform(image=img)
-        return augmented['image']
 
 
 def load_cifar10(batch_size):
@@ -86,7 +68,7 @@ def load_test_val_from_folder(data_dir, batch_size=32):
 
 def load_dataset_kfold(data_dir):
     transform = transforms.Compose([
-        transforms.Resize((299, 299)),
+        transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
 
@@ -95,7 +77,7 @@ def load_dataset_kfold(data_dir):
 
 def print_dataset_sizes(data_dir):
     sets = ['train', 'val', 'test']
-    print("\n Distribuição de imagens nas pastas:")
+    print(f"\n Distribuição de imagens na pasta {data_dir}:")
     for set_name in sets:
         path = os.path.join(data_dir, set_name)
         num_images = len(glob(os.path.join(path, '**', '*.*'), recursive=True))
@@ -193,9 +175,9 @@ def load_checkpoint_and_evaluate(checkpoint_path, model_name, num_classes, testl
 #classes = ('BASH', 'BBH', 'GMA', 'SHC', 'TSH')
 
 # models = resnet18, mobilenetv3, resnet18_mobilenetv3, vgg16_mobilenetv3, vgg16, densenet161,
-#          densenet161_mobilenetv3, inceptionv3
+#          densenet161_mobilenetv3, inceptionv3, resnet101, densenet121
 
-model_name = 'densenet161_mobilenetv3'
+model_name = 'vgg16_mobilenetv3'
 
 #print('testando_checkpoit.pt...')
 #_, testloader, classes = load_test_val_from_folder(batch_size=8)
@@ -204,18 +186,20 @@ model_name = 'densenet161_mobilenetv3'
 #exit()
 
 if __name__ == '__main__':
-    batch_size = 16
-    print_dataset_sizes('../data_ceratite')
+    batch_size = 32
+    dir = 'data_ceratite_1112x4'
+    print_dataset_sizes(f'../{dir}')
 
     #dataset = load_cifar10(batch_size)
-    dataset = load_dataset_kfold(data_dir='../data_ceratite/train')
+    dataset = load_dataset_kfold(data_dir=f'../{dir}/train')
 
-    kfold = KFold(n_splits=7, shuffle=True, random_state=42)
+    kfold = StratifiedKFold(n_splits=7, shuffle=True, random_state=42)
 
     accuracies, precisions, recalls, f1s, aucs = [], [], [], [], []
     metrics_per_fold = []
+    targets = [sample[1] for sample in dataset.samples]
 
-    for fold, (train_idx, val_idx) in enumerate(kfold.split(dataset)):
+    for fold, (train_idx, val_idx) in enumerate(kfold.split(dataset, targets)):
 
         train_subset = Subset(dataset, train_idx)
         val_subset = Subset(dataset, val_idx)
@@ -223,7 +207,7 @@ if __name__ == '__main__':
         trainloader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
         valloader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
 
-        _, testloader, classes = load_test_val_from_folder(data_dir='data_ceratite', batch_size=batch_size)
+        _, testloader, classes = load_test_val_from_folder(data_dir=dir, batch_size=batch_size)
 
         trainer = CNNTrainer(model_name=model_name, fold=fold+1,patience=5)
         trainer.train(trainloader, valloader, epochs=100, lr=0.0001, fold=fold+1)
@@ -268,31 +252,36 @@ if __name__ == '__main__':
         plot_and_save_confusion_matrix(y_true, y_pred, classes, fold+1, model_name) # MATRIZ DE CONFUSÃO DO CHECKPOIT COM IMAGENS DE TESTE
         plot_and_save_roc_auc(y_true, y_pred, classes, fold+1, model_name)
 
-    mean_acc = sum(accuracies) / len(accuracies)
-    mean_prec = sum(precisions) / len(precisions)
-    mean_rec = sum(recalls) / len(recalls)
-    mean_f1 = sum(f1s) / len(f1s)
-    mean_auc = sum(aucs) / len(aucs)
+    mean_acc = np.mean(accuracies)
+    mean_prec = np.mean(precisions)
+    mean_rec = np.mean(recalls)
+    mean_f1 = np.mean(f1s)
+    mean_auc = np.mean(aucs)
+
+    std_acc = np.std(accuracies)
+    std_prec = np.std(precisions)
+    std_rec = np.std(recalls)
+    std_f1 = np.std(f1s)
+    std_auc = np.std(aucs)
 
     print("\n><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><")
     print("Resultados Médios após 5 Folds:")
-    print(f"Acurácia Média: {mean_acc:.4f}")
-    print(f"Precision Média: {mean_prec:.4f}")
-    print(f"Recall Médio: {mean_rec:.4f}")
-    print(f"F1-Score Médio: {mean_f1:.4f}")
+    print(f"Acurácia Média: {mean_acc:.4f} ± {std_acc:.4f}")
+    print(f"Precision Média: {mean_prec:.4f} ± {std_prec:.4f}")
+    print(f"Recall Médio: {mean_rec:.4f} ± {std_rec:.4f}")
+    print(f"F1-Score Médio: {mean_f1:.4f} ± {std_f1:.4f}")
     print(f"AUC Médio: {mean_auc:.4f}")
     print("><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><\n")
 
-    metrics_text = "\n".join(metrics_per_fold)  # Junta métricas de cada fold
+    metrics_text = "\n".join(metrics_per_fold)
     metrics_text += (
-        "\nMÉTRICAS MÉDIAS FINAIS:\n"
-        f"Acurácia Média: {mean_acc:.4f}\n"
-        f"Precision Média: {mean_prec:.4f}\n"
-        f"Recall Médio: {mean_rec:.4f}\n"
-        f"F1-Score Médio: {mean_f1:.4f}\n"
+        "\nMÉTRICAS MÉDIAS FINAIS (com desvio padrão):\n"
+        f"Acurácia Média: {mean_acc:.4f} ± {std_acc:.4f}\n"
+        f"Precision Média: {mean_prec:.4f} ± {std_prec:.4f}\n"
+        f"Recall Médio: {mean_rec:.4f} ± {std_rec:.4f}\n"
+        f"F1-Score Médio: {mean_f1:.4f} ± {std_f1:.4f}\n"
         f"AUC Médio: {mean_auc:.4f}\n"
     )
-
 
     timestamp = datetime.datetime.now().strftime("%d%m%Y_%H%M%S")
     output_path = f"resultados/{model_name}_metrics_{timestamp}.txt"

@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from pytorchtools import EarlyStopping
 import matplotlib.pyplot as plt
+import torch_optimizer as optim_advanced
 from teste import LightSelfAttention
 
 class CombinedDenseNet161MobileNetV3(nn.Module):
@@ -91,14 +92,14 @@ class CombinedVGG16MobileNetV3(nn.Module):
         self.vgg_features = vgg16.features
         self.vgg_avgpool = nn.AdaptiveAvgPool2d((1,1))
         self.vgg_maxpool = nn.AdaptiveMaxPool2d((1, 1))
-        self.vgg_fc = nn.Linear(512 * 2, 512)  # VGG16 tem 512 canais finais
+        self.vgg_fc = nn.Linear(32256, 512)  # VGG16 tem 512 canais finais
 
         # Backbone convolucional MobileNetV3-Large
         mobilenet_v3_large = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT)
         self.mobilenet_features = mobilenet_v3_large.features
         self.mobilenet_avgpool = nn.AdaptiveAvgPool2d((1,1))
-        self.mobilenet_maxpool = nn.AdaptiveMaxPool2d((1, 1))
-        self.mobilenet_fc = nn.Linear(960 * 2, 512)  # MobileNetV3-Large tem 960 canais finais
+        self.mobilenet_maxpool = nn.AdaptiveMaxPool2d((1,1))
+        self.mobilenet_fc = nn.Linear(76800, 512)  # MobileNetV3-Large tem 960 canais finais
 
         self.attn_block = LightSelfAttention(512)
 
@@ -111,45 +112,34 @@ class CombinedVGG16MobileNetV3(nn.Module):
 
     
         self.mlp = nn.Sequential(
-            nn.Linear(512, 512),
+            #nn.Linear(512, 1024),
+            #nn.Hardswish(inplace=True),
+            #nn.Dropout(0.2),
+            #nn.Linear(1024, 512),
+            #nn.Hardswish(inplace=True),
+            #nn.Dropout(0.2),
+            #nn.Linear(512, 1024),
+            #nn.Hardswish(inplace=True),
+            #nn.Dropout(0.1),
+            nn.Linear(512, 4096),  
             nn.Hardswish(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(1024, 512),
-            nn.Hardswish(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(512, 256),
-            nn.Hardswish(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(512, 256),
-            nn.Hardswish(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(512, num_classes)
+            nn.Dropout(0.3),
+            nn.Linear(4096, num_classes)
         )
 
     def forward(self, x):
         # Passa pela VGG16
-        x1 = self.vgg_features(x) 
-        x1_avg = self.vgg_avgpool(x1) 
-        x1_max = self.vgg_maxpool(x1) 
-        x1 = torch.cat([x1_avg, x1_max], dim=1) 
+        x1 = self.vgg_features(x) # 25088
         x1 = torch.flatten(x1, 1)
-        x1 = self.vgg_fc(x1)        
+        x1 = self.vgg_fc(x1)     
 
         # Passa pela MobileNetV3-Large
-        x2 = self.mobilenet_features(x) 
-        x2_avg = self.mobilenet_avgpool(x2) 
-        x2_max = self.mobilenet_maxpool(x2) 
-        x2 = torch.cat([x2_avg, x2_max], dim=1) 
+        x2 = self.mobilenet_features(x) # 47040
         x2 = torch.flatten(x2, 1)
-        x2 = self.mobilenet_fc(x2)   
-
-
+        x2 = self.mobilenet_fc(x2) 
 
         # Produto elemento a elemento
         #x_combined = torch.mul(x1, x2)
-
-        x1 = nn.functional.normalize(x1, dim=1)
-        x2 = nn.functional.normalize(x2, dim=1)
 
         #alpha = self.attn(x1)
         #beta = self.attn(x2)
@@ -171,7 +161,7 @@ class CombinedVGG16MobileNetV3(nn.Module):
         # Attention block em X1 -----------------
         #attended_x1 = self.attn_block(x2)
         #x_combined = (alpha * attended_x1) + (1.0 - alpha) * x2     
-        
+        x_combined = nn.functional.normalize(x_combined, dim=1)
         output = self.mlp(x_combined)
         return output
 
@@ -227,7 +217,7 @@ class CombinedResNet18MobileNetV3(nn.Module):
 
 class CNNTrainer:
     def __init__(self, model_name, fold, num_classes=4, device=None, patience=5):
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model = self._load_pretrained_model(model_name, num_classes)
         self.model.to(self.device)
         self.history = {'train_loss': [], 'val_accuracy': [], 'val_loss': []}
@@ -328,17 +318,22 @@ class CNNTrainer:
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         model_size_mb = sum(p.element_size() * p.numel() for p in model.parameters()) / (1024 ** 2)
 
+        print("🖥️  Dispositivo ativo:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
         print(f"📊 Total de parâmetros: {total_params:,}")
         print(f"🧠 Parâmetros treináveis: {trainable_params:,}")
         print(f"💾 Tamanho do modelo: {model_size_mb:.2f} MB")
 
     def train(self, trainloader, valloader, epochs=10, lr=0.001, fold=0):
-        criterion = nn.CrossEntropyLoss()
-        #optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        class_weights = torch.tensor([1.0, 1.0, 1.5, 1.0]).cuda() 
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
 
         # Início: somente os parâmetros com requires_grad=True (congelados parcialmente)
-        optimizer = optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=lr)
+        #optimizer = optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=lr)
 
+        radam = optim_advanced.RAdam(self.model.parameters(), lr=lr)
+        optimizer = optim_advanced.Lookahead(radam)
+        torch.cuda.empty_cache()
+        
         for epoch in range(epochs):
             if epoch == 5:
                 print("Descongelando camadas convolucionais do modelo...")
@@ -354,8 +349,10 @@ class CNNTrainer:
                     for layer in self.model.mobilenet_features:
                         for param in layer.parameters():
                             param.requires_grad = True
-                    
-            optimizer = optim.Adam(self.model.parameters(), lr=lr)
+                
+                del optimizer
+                radam = optim_advanced.RAdam(self.model.parameters(), lr=lr)
+                optimizer = optim_advanced.Lookahead(radam)
             
             self.model.train()
             running_loss = 0.0
@@ -443,7 +440,7 @@ class CNNTrainer:
             _, preds = torch.max(outputs, 1)
         return preds.cpu()
     
-    def plot_training_metrics(self, fold=0, save_path='metrics_plot.png'):
+    def plot_training_metrics(self, fold=0, save_path='resultados/metrics_plot.png'):
         epochs = range(1, len(self.history['train_loss']) + 1)
         train_loss = self.history['train_loss']
         val_loss = self.history['val_loss']

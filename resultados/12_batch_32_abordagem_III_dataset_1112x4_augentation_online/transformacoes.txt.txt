@@ -1,0 +1,17 @@
+Compose([
+            HorizontalFlip(p=0.3),
+            VerticalFlip(p=0.3),
+            ColorJitter(p=0.3),       
+            GaussianBlur(p=0.3), 
+        ])
+
+
+
+
+
+MLP menor:
+nn.Linear(512, 2048),  
+            nn.Hardswish(inplace=True),
+            nn.Dropout(0.1),
+            nn.Linear(2048, num_classes)
+
